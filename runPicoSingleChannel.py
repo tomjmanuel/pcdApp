@@ -32,9 +32,11 @@ class runPico:
 		self.status["openunit"] = ps.ps5000aOpenUnit(ctypes.byref(self.chandle), None, resolution)
 		self.dataA = []
 		self.time = []
-		
+		self.connectedFlag = 0 # track connectivity
+
 		try:
 			assert_pico_ok(self.status["openunit"])
+			self.connectedFlag=1
 		except:  # PicoNotOkError:
 
 			powerStatus = self.status["openunit"]
@@ -151,6 +153,12 @@ class runPico:
 	
 	def clearData(self):
 		self.dataA = []
+
+	def checkConnected(self):
+		return self.connectedFlag
+
+	def disconnect(self):
+		self.status["close"] = ps.ps5000aCloseUnit(self.chandle)
 
 		
 	

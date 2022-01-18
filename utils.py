@@ -42,6 +42,7 @@ def connect(fus):
 	print ("Trying to connect to %s on port %d:" % (generatorAddress, generatorPort))
 	if fus.connect (generatorAddress, generatorPort, 4000):
 		print ("Ok")
+		return 1
 	else:
 		print ("Failure")
 		exit (1)
@@ -58,12 +59,15 @@ class ExecListener(FUSTHON.FUSListener):
 		self.m_running = False
 		self.shotResults = []
 		self.execResult = None
+		self.isConnected = 0
 
 	def onConnect(self):
 		print ("Listener: CONNECTED")
+		self.isConnected = 1
 
 	def onDisconnect(self, reason):
 		self.m_running = False
+		self.isConnected = 0
 		print ("Listener: DISCONNECTED (reason=%d)" % reason)
 
 	def onExecStart (self, execID, execCount, execFlags, elecMode, trigMode, mechMode):

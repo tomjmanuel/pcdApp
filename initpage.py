@@ -20,11 +20,11 @@ import threading
 from scipy.io import (loadmat, savemat)
 from scipy.signal import resample
 
-# from runPicoSingleChannel import runPico as Pico
-# import FUSTHON
-# import utils
-# import numpy as np
-# import transducerXYZ
+from runPicoSingleChannel import runPico as Pico
+import FUSTHON
+import utils as utils
+import numpy as np
+import transducerXYZ
 
 class PcdApp(tk.Tk):
 
@@ -46,20 +46,20 @@ class PcdApp(tk.Tk):
         self.FreqVar = tk.StringVar(value="1")          # MHz
         self.PrfVar = tk.StringVar(value="2")           # Hz
         self.duration = tk.StringVar(value="180")       # (s) therapy duration
-        self.AmpVar = tk.StringVar(value="25")          # % Amp
-        self.AmpInc = tk.StringVar(value="5")           # % Amp (change value)
+        self.AmpVar = tk.StringVar(value="25")          # Amp variable (0 to 255)
+        self.AmpInc = tk.StringVar(value="5")           # Amp (change value)
         self.nAmps = tk.StringVar(value="7")            # n amps for baseline collection (sets range)
         self.PulseLengthVar = tk.StringVar(value="10")  # ms
         self.ampVec = []                                # vector with ampVec strings
         self.ampVecString = tk.StringVar()              # string with concatenated amp vecs for display
-        self.genFile = tk.StringVar(value='C:/')  # path + file to generator config file (gen.ini)
-        self.fusFile = tk.StringVar(value='C:/')  # path + file to transducer config file (xdcr.ini)
-        self.saveDir = tk.StringVar(value='C:/')  # path to save picoscope data
+        self.fusFile = tk.StringVar(value='D:/pcdApp/ATAC_config_v2.ini')  # path + file to transducer config file (xdcr.ini)
+        self.saveDir = tk.StringVar(value='D:/pcdApp/Data')  # path to save picoscope data
+        self.steeringCoord = (0,0,0)     # steering [mm] (x,y,z) with +z away from ATAC and towards 650 kHz
 
         # therapy variables
         self.spectData = numpy.array([])                                # fft vs time data from pcd
         self.spectImage = numpy.array([])                               # image representation of spectrogram
-        self.nPulses = int(self.PrfVar.get()) * int(self.duration.get())    # number of pulses (computed from PRF and duration
+        self.nPulses = int(float(self.PrfVar.get()) * int(self.duration.get()) )   # number of pulses (computed from PRF and duration
         self.ICvec = numpy.array([])                                    # inertial caviation dose
         self.SCvec = numpy.array([])                                    # stable cavitation dose
         self.curr = int(0)                                              # iter value that tracks which shot we are on
@@ -73,6 +73,25 @@ class PcdApp(tk.Tk):
 
         # picoscope variables
         self.Pico = []                                                  # object for interfacing with picoscope (initialized in connectPico)
+        self.timebase = 4  # 9-> dt = 96                                # sets the sample interval
+        self.recordTime = 200E-6                                        # how long the scope records
+        self.vRange = "PS5000A_10V"                                     # voltage range for picoscope, try 10,20,50,100,200
+        self.sampleInterval = (self.timebase - 3) / 62500000                 # dt / samp
+        self.postTrigSamps = np.int(np.round(self.recordTime / self.sampleInterval))  # n samples
+        self.picoIsConnected = 0
+
+        # generator variables
+        self.fus = FUSTHON.FUS()
+        self.listener = utils.ExecListener()
+        self.fus.registerListener(self.listener)
+        self.trans = transducerXYZ.Transducer()
+        self.genIsConnected = 0                                         # track if generator is connected
+        self.shot = FUSTHON.PhaseShot(1, 1, 1)                         # shot variable (will get updated by updateTraj
+        self.channels = []
+        self.traj = []
+        self.execMode = FUSTHON.ElecExecMode.NORMAL
+        self.trigMode = FUSTHON.TriggerMode.ONE_PULSE_FOR_EVERYTHING
+
 
         # fft processing
         self.sampRate = self.devSampRate[0]
@@ -80,7 +99,6 @@ class PcdApp(tk.Tk):
         self.dsf = 100                                                                              # downsample spectrogram for display
         self.freqCrop = 2                                                                           # 2: 50% (only display first 50% of spectrum)
         self.freqRes = self.sampRate / (self.freqpoints * 2)                                        # sample rate / number of time points
-        #self.npointscropped = int((self.freqpoints / self.dsf - 1)/self.freqCrop)                   # the number of points in the spectrogram
         self.freqVec = self.freqRes*numpy.arange(numpy.round(self.freqpoints/self.freqCrop)) / 1000000          # (MHz) freq axis for line plot (cropped but not downsampled)
         self.npointscropped = int(round(len(self.freqVec) / self.dsf))
         self.freqVecDS = resample(self.freqVec, self.npointscropped)                                # (MHz) freq axis for spectrogram (cropped and downsampled)
@@ -144,7 +162,6 @@ class PcdApp(tk.Tk):
         self.fillGen()
         self.fillPico()
 
-
         # dev only
         # compute baseline ffts and put into self.Fbaselines ready for subtraction
         self.Fbaselines = numpy.abs(numpy.fft.fft(self.devBaselines, axis=1))  # (AmpInc x ntpts
@@ -203,6 +220,26 @@ class PcdApp(tk.Tk):
         self.therframe.withdraw()
         self.main_frame.focus()
 
+    def updateTraj(self):
+        # first create the shot and trajectory
+        onTime = int(self.PulseLengthVar.get())*1000
+        self.channels = self.fus.gen.getChannelCount()
+        self.traj = FUSTHON.ElectronicTrajectory(self.channels)
+        # compute offtime to fill the rest of the prf
+        # maybe that will handle the timing of everything...
+        totTime = (1/float(self.PrfVar.get()) )*1000000 # total time per pulse in us (offtime plus ontime)
+        computerLag = 400 * 1000 # lag time to allow computation and display of spectral stuff etc (600 ms seems to work)
+        offTime = totTime-onTime - computerLag
+        self.shot.setDuration(onTime, int(offTime))
+        self.shot.setPhase(0, 0)  # set phase[0] = 0  (values in [0,255] = [0,360]deg)
+        self.shot.setFrequency(0, int(self.FreqVar.get())*1000000)  # set frequency[0] = 1 MHz
+        self.shot.setAmplitude(0, int(self.AmpVar.get()))
+
+        # get steering phases
+        self.trans.computePhases(self.shot, self.steeringCoord)
+        self.traj.clear()
+        self.traj.addShot(self.shot)
+
     def createFreqMask(self):
         self.freqMask = numpy.zeros((len(self.freqVec), 1))
         self.ICMask = numpy.zeros((len(self.freqVec), 1))
@@ -238,18 +275,20 @@ class PcdApp(tk.Tk):
             self.emergencyStop = 1
 
         self.curr = 0
-        self.nPulses = int(self.PrfVar.get()) * int(self.duration.get())
+        self.nPulses = int(round(float(self.PrfVar.get()) * int(self.duration.get())))
         while self.curr < self.nPulses and not self.emergencyStop:
-            print(self.AmpVar.get())    # display the amplitude (this updates with user input)
-
             # these may have to run in seperate threads we'll see
+            self.updateTraj()           # update trajectory with new shot that has current amplitude
             self.pulseEcho()            # shoot your shot and collect some data yo
             self.updateSpectrogram()    # update the spectrogram to include new data
             self.updateIcSc()           # update the ICSC plot to include new data
             self.curr = self.curr+1     # update the pulse you're on
             self.ampVsTime.append(self.AmpVar.get())
+            print(self.curr)
+            print(self.nPulses)
+            print(self.emergencyStop)
             # there will be some timing aspect required to achieve PRF
-            sleep(0.1)
+            #sleep(0.1)
 
         #
 
@@ -267,10 +306,15 @@ class PcdApp(tk.Tk):
         self.baselinesCollected = 1
 
     def pulseEcho(self):
-        # here is where we will create a shot, create a trajectory
-        # call run block on picoscope and execute trajectory
+        # arm picoscope
+        self.Pico.runBlock()
+        # send trajectory (contains latests amplitude)
+        self.fus.gen.sendTrajectory(1, self.traj, self.execMode)
+        self.fus.gen.executeTrajectory(1, 1, 0) # args: traj buffer, n pulses, execDelay
+        self.listener.waitExecution()
+        self.Pico.waitForFinish()
+        self.listener.printExecResult()
         # data should get appended to dataA in picoscope class so don't need to store again
-        print('pulseEcho')
 
     def stopTherapy(self):
         self.emergencyStop = 1
@@ -355,6 +399,7 @@ class PcdApp(tk.Tk):
     def showInit(self):
         self.main_frame.focus()
         self.main_frame.pack(fill="both", expand="true")
+        self.therframe.withdraw()
         self.clearData()
 
     def clearData(self):
@@ -381,7 +426,7 @@ class PcdApp(tk.Tk):
         # update the spectrogram image (nothing to do with data collection)
         # this gets called on initialization to fill the plot with zeros
         # it then gets called on every pulse event to update the spectrogram plot
-        self.nPulses = int(self.PrfVar.get()) * int(self.duration.get())
+        self.nPulses = int(round(float(self.PrfVar.get()) * int(self.duration.get())))
         if self.spectImage.size == 0:  # true at initialization
             #self.spectImage = numpy.random.randn(int(self.nPulses), self.freqpoints)
             self.spectImage = numpy.zeros((self.npointscropped, int(self.nPulses)))
@@ -455,9 +500,16 @@ class PcdApp(tk.Tk):
 
 
     def openTherapy(self):
-        print('open therapy')
-        self.therframe.deiconify()
-        self.main_frame.pack_forget()
+        # first check that picoscope and generator are connected
+        if self.genIsConnected and self.picoIsConnected:
+            print('open therapy')
+            self.therframe.deiconify()
+            self.main_frame.pack_forget()
+        else:
+            if not self.genIsConnected:
+                print('generator not connected')
+            if not self.picoIsConnected:
+                print('Picoscope not connected')
 
     def fillFus(self):
         # Fill the FUS panel ################################
@@ -465,7 +517,7 @@ class PcdApp(tk.Tk):
         fus_label = tk.Label(self.fusframe, text='FUS Panel', font=('calibre', 20, 'bold'), bg='#323232', fg='#FFFFFF')
 
         # PRF
-        prf_label = tk.Label(self.fusframe, text='PRF (Hz)', font=('calibre', 10, 'bold'), bg='#323232', fg='#FFFFFF')
+        prf_label = tk.Label(self.fusframe, text='0.5 <= PRF (Hz) <= 2', font=('calibre', 10, 'bold'), bg='#323232', fg='#FFFFFF')
         prf_entry = tk.Entry(self.fusframe, textvariable=self.PrfVar, font=('calibre', 10, 'normal'), bg='#323232', fg='#90b8f8')
 
         # Frequency
@@ -481,11 +533,11 @@ class PcdApp(tk.Tk):
         plv_entry = tk.Entry(self.fusframe, textvariable=self.PulseLengthVar, font=('calibre', 10, 'normal'), bg='#323232', fg='#90b8f8')
 
         # AmpVar
-        amp_label = tk.Label(self.fusframe, text='Amplitude (% amp)', font=('calibre', 10, 'bold'), bg='#323232', fg='#FFFFFF')
+        amp_label = tk.Label(self.fusframe, text='Amplitude (0-255)', font=('calibre', 10, 'bold'), bg='#323232', fg='#FFFFFF')
         amp_entry = tk.Entry(self.fusframe, textvariable=self.AmpVar, font=('calibre', 10, 'normal'), bg='#323232', fg='#90b8f8')
 
         # AmpInc
-        ampInc_label = tk.Label(self.fusframe, text='Amp increment (% amp)', font=('calibre', 10, 'bold'), bg='#323232', fg='#FFFFFF')
+        ampInc_label = tk.Label(self.fusframe, text='Amp increment (0-255)', font=('calibre', 10, 'bold'), bg='#323232', fg='#FFFFFF')
         ampInc_entry = tk.Entry(self.fusframe, textvariable=self.AmpInc, font=('calibre', 10, 'normal'), bg='#323232', fg='#90b8f8')
         # ampInc_entry.insert(0, AmpInc.get())  # show default value
 
@@ -526,13 +578,6 @@ class PcdApp(tk.Tk):
         # gen label
         gen_label = tk.Label(self.genframe, text='Generator Panel', font=('calibre', 20, 'bold'), bg='#323232', fg='#FFFFFF')
 
-        # gen config file picker
-        filebutt = tk.Button(self.genframe, text='Select new generator file', command=self.getFile, height=1, width=24, pady=3, padx=3, bg='#aaaaaa', fg='#000000', font=('calibre', 10, 'normal'))
-
-        # gen file display label and label
-        genfiledisp = tk.Label(self.genframe, text='Generator file', font=('calibre', 10, 'normal'), bg='#323232', fg='#FFFFFF')
-        genfilelab = tk.Label(self.genframe, textvariable=self.genFile, font=('calibre', 7, 'normal'), bg='#323232', fg='#90b8f8')
-
         # fus config file picker
         fusfilebutt = tk.Button(self.genframe, text='Select new FUS config file', command=self.getFusFile, height=1, width=24, pady=3, padx=3, bg='#aaaaaa', fg='#000000', font=('calibre', 10, 'normal'))
 
@@ -545,18 +590,19 @@ class PcdApp(tk.Tk):
         genlight = gencanvas.create_oval(5, 5, 18, 18, fill="red")
 
         # connect to gen button
-        connectgenbutt = tk.Button(self.genframe, text='Connect to generator', command=lambda: self.connectGen(gencanvas, genlight), height=1, width=24, pady=3, padx=3, bg='#aaaaaa', fg='#000000', font=('calibre', 10, 'normal'))
+        connectgenbutt = tk.Button(self.genframe, text='Connect', command=lambda: self.connectGen(gencanvas, genlight), height=1, width=24, pady=3, padx=3, bg='#aaaaaa', fg='#000000', font=('calibre', 10, 'normal'))
+
+        # connect to gen button
+        disconnectgenbutt = tk.Button(self.genframe, text='Disconnect', command=lambda: self.disconnectGen(gencanvas, genlight), height=1, width=24, pady=3, padx=3, bg='#aaaaaa', fg='#000000', font=('calibre', 10, 'normal'))
 
         # place erthing in grid
         gen_label.grid(row=0, column=0, columnspan=2)
-        genfiledisp.grid(row=1, column=0)
-        genfilelab.grid(row=1, column=1)
         fusfiledisp.grid(row=2, column=0)
         fusfilelab.grid(row=2, column=1)
-        filebutt.grid(row=3, column=0)
         fusfilebutt.grid(row=4, column=0)
         connectgenbutt.grid(row=5, column=0)
         gencanvas.grid(row=5, column=1)
+        disconnectgenbutt.grid(row=6, column=0)
 
     def fillPico(self):
         # Fill the pico panel ################################
@@ -575,7 +621,10 @@ class PcdApp(tk.Tk):
         savedirlab = tk.Label(self.picoframe, textvariable=self.saveDir, font=('calibre', 7, 'normal'), bg='#323232', fg='#90b8f8')
 
         # connect to pico button
-        connectpicobutt = tk.Button(self.picoframe, text='Connect to picoscope', command=lambda: self.connectpico(picocanvas, picolight), height=1, width=24, pady=3, padx=3, bg='#aaaaaa', fg='#000000', font=('calibre', 10, 'normal'))
+        connectpicobutt = tk.Button(self.picoframe, text='Connect', command=lambda: self.connectpico(picocanvas, picolight), height=1, width=24, pady=3, padx=3, bg='#aaaaaa', fg='#000000', font=('calibre', 10, 'normal'))
+
+        # disconnect to pico button
+        disconnectpicobutt = tk.Button(self.picoframe, text='Disconnect', command=lambda: self.disconnectpico(picocanvas, picolight), height=1, width=24, pady=3, padx=3, bg='#aaaaaa', fg='#000000', font=('calibre', 10, 'normal'))
 
         # place erthing in grid
         pico_label.grid(row=0, column=0, columnspan=2)
@@ -584,27 +633,61 @@ class PcdApp(tk.Tk):
         savebutt.grid(row=2,column=0, columnspan=2)
         connectpicobutt.grid(row=3, column=0)
         picocanvas.grid(row=3, column=1)
+        disconnectpicobutt.grid(row=4, column=0)
 
     def getSaveDir(self):
         fn = fd.askdirectory( initialdir=self.saveDir.get())
         self.saveDir.set(fn)
 
     def connectGen(self, gencanvas, genlight):
+        # load transducer file
+        if not self.trans.load(self.fusFile.get()):
+            print("Error: can not load the transducer definition from " + self.fusFile.get())
+            exit(1)
+
         # connect to generator
-        print(self.genFile.get())
-        gencanvas.itemconfig(genlight, fill="green")
+        self.genIsConnected = utils.connect(self.fus)
+        if self.genIsConnected:
+            gencanvas.itemconfig(genlight, fill="green")
+            print('generator connected')
+        else:
+            print('generator connection failed')
+
+    def disconnectGen(self, gencanvas, genlight):
+
+        # connect to generator
+        self.fus.disconnect()
+        gencanvas.itemconfig(genlight, fill="red")
+        self.genIsConnected = 0
+        print('generator disconnected')
 
     def connectpico(self, picocanvas, picolight):
         # connect to picoerator
-        print('connect to picoscope')
+        # check if already connected
+        if self.picoIsConnected:
+            print('already connected to picoscope')
+        else:
+            print('connect to picoscope')
+            self.Pico = Pico(self.postTrigSamps, self.timebase, self.vRange)
+            # need a check here to make sure it connected
+            if self.Pico.checkConnected():
+                picocanvas.itemconfig(picolight, fill="green")
+                self.picoIsConnected = 1
+            else:
+                print('picoscope connection failed')
+        #
 
-        #self.Pico = Pico()
-        # need a check here to make sure it connected
-        picocanvas.itemconfig(picolight, fill="green")
-
-    def getFile(self):
-        fn = fd.askopenfilename()
-        self.genFile.set(fn)
+    def disconnectpico(self, picocanvas, picolight):
+        # connect to picoerator
+        # check if already connected
+        if not self.picoIsConnected:
+            print('Picoscope is not connected')
+        else:
+            print('disconnect picoscope')
+            self.Pico.disconnect()
+            picocanvas.itemconfig(picolight, fill="red")
+            self.picoIsConnected = 0
+        #
 
     def getFusFile(self):
         fn = fd.askopenfilename()
