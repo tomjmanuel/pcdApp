@@ -52,6 +52,9 @@ class PcdApp(tk.Tk):
         self.ampVecString = tk.StringVar()              # string with concatenated amp vecs for display
         self.fusFile = tk.StringVar(value='D:/pcdApp/ATAC_config_v2.ini')  # path + file to transducer config file (xdcr.ini)
         self.saveDir = tk.StringVar(value='D:/pcdApp/Data')  # path to save picoscope data
+        self.steerX = tk.StringVar(value="0")
+        self.steerY = tk.StringVar(value="0")
+        self.steerZ = tk.StringVar(value="0")
         self.steeringCoord = (0,0,0)     # steering [mm] (x,y,z) with +z away from ATAC and towards 650 kHz
 
         # therapy variables
@@ -93,7 +96,7 @@ class PcdApp(tk.Tk):
         #self.sampRate = self.devSampRate[0]
         self.sampRate = int(1/self.sampleInterval)
         self.freqpoints = int(self.postTrigSamps/2)                                                             # number of points in single sided fft
-        self.dsf = 100                                                                              # downsample spectrogram for display
+        self.dsf = 10                                                                              # downsample spectrogram for display
         self.freqCrop = 5                                                                           # 2: 50% (only display first 50% of spectrum)
         self.freqRes = self.sampRate / (self.freqpoints * 2)                                        # sample rate / number of time points
         self.freqVec = self.freqRes*np.arange(np.round(self.freqpoints/self.freqCrop)) / 1000000          # (MHz) freq axis for line plot (cropped but not downsampled)
@@ -310,6 +313,10 @@ class PcdApp(tk.Tk):
                 sleep(0.1)
             # compute fft of baseline and average it
             self.baselines[:, ii] = self.procBaseline(self.Pico.getDataA())
+
+            # display the last baseline to check if clipping
+            self.displayBaseline(self.Pico.getDataA())
+
             self.Pico.clearData() # clear data from picoscope object
             # put baseline into a baselines variable
             # dev is working with self.baselines
@@ -322,6 +329,19 @@ class PcdApp(tk.Tk):
         self.AmpVar.set(originalAmp)
         self.ampIndex = int(round(int(self.nAmps.get()) / 2) - 1) # also reset amp index
         #
+
+    def displayBaseline(self, data):
+        # the goal is to find a portion of the signal that is maximum and plot it in a way that would make
+        # clipping visually apparent
+        self.lpFigPlt.cla()
+        data = np.asarray(data)
+        index = np.argmax(data[0, :]) # index is where the max is so we can plot around that
+        # check to make sure we can plot there and up 1000 (not at end)
+        if index + 250 < len(data[0,:]):
+            self.lpFigPlt.plot(data[0,index:index+250])
+        else:
+            self.lpFigPlt.plot(data[0,-250:index+-1]) # just plot the last 1000 samples
+        self.lpcanvas.draw_idle()
 
     def procBaseline(self, data):
         # compute spectrum of baselines and then average
@@ -482,16 +502,24 @@ class PcdApp(tk.Tk):
         # place resampled subtracted vector into image (use freq crop here)
         self.spectImage[:, self.curr] = FvecSubResamp[0:len(self.freqVecDS)]
 
+        # get upper and lower bounds for spectImage contrast
+        upperBound = np.max(FvecSubResamp)
+        lowerBound = np.average(FvecSubResamp)
+        lowerBound = lowerBound + np.std(FvecSubResamp)
+        print(upperBound)
+        print(lowerBound)
+
         #display
         self.spectFigPlt.cla()
-        self.spectFigPlt.imshow(self.spectImage, aspect=self.aspect, interpolation="none", extent=[0, self.nPulses, self.freqVecDS[-1], 0])
+        self.spectFigPlt.imshow(self.spectImage, vmax=upperBound, vmin=lowerBound, aspect=self.aspect, interpolation="none", extent=[0, self.nPulses, self.freqVecDS[-1], 0])
         self.SpectCanvas.draw_idle()
         self.lpFigPlt.cla()
         self.lpFigPlt.plot(self.spectData[0:len(self.freqVec), self.curr], self.freqVec)
+        self.lpFigPlt.set_xlim([lowerBound, upperBound])
 
         # optionaly display the bins used for SC and IC calculation
-        self.lpFigPlt.plot(self.freqMask[0:len(self.freqVec), 0], self.freqVec)
-        self.lpFigPlt.plot(self.ICMask[0:len(self.freqVec), 0], self.freqVec)
+        #self.lpFigPlt.plot(self.ICMask[0:len(self.freqVec), 0], self.freqVec)
+        #self.lpFigPlt.plot(self.freqMask[0:len(self.freqVec), 0], self.freqVec)
 
         # refresh
         self.lpcanvas.draw_idle()
@@ -564,11 +592,20 @@ class PcdApp(tk.Tk):
         # AmpInc
         ampInc_label = tk.Label(self.fusframe, text='Amp increment (0-255)', font=('calibre', 10, 'bold'), bg='#323232', fg='#FFFFFF')
         ampInc_entry = tk.Entry(self.fusframe, textvariable=self.AmpInc, font=('calibre', 10, 'normal'), bg='#323232', fg='#90b8f8')
-        # ampInc_entry.insert(0, AmpInc.get())  # show default value
 
         # nAmps
         nAmps_label = tk.Label(self.fusframe, text='# of Amplitudes', font=('calibre', 10, 'bold'), bg='#323232', fg='#FFFFFF')
         nAmps_entry = tk.Entry(self.fusframe, textvariable=self.nAmps, font=('calibre', 10, 'normal'), bg='#323232', fg='#90b8f8')
+
+        # steering
+        steer_labelX =  tk.Label(self.fusframe, text='Steering X [mm]', font=('calibre', 10, 'bold'), bg='#323232', fg='#FFFFFF')
+        sx_entry = tk.Entry(self.fusframe, textvariable=self.steerX, font=('calibre', 10, 'normal'), bg='#323232', fg='#90b8f8')
+        sy_entry = tk.Entry(self.fusframe, textvariable=self.steerY, font=('calibre', 10, 'normal'), bg='#323232', fg='#90b8f8')
+        sz_entry = tk.Entry(self.fusframe, textvariable=self.steerZ, font=('calibre', 10, 'normal'), bg='#323232', fg='#90b8f8')
+        steer_labelY = tk.Label(self.fusframe, text='Steering Y [mm]', font=('calibre', 10, 'bold'), bg='#323232',
+                                fg='#FFFFFF')
+        steer_labelZ = tk.Label(self.fusframe, text='Steering Z [mm]', font=('calibre', 10, 'bold'), bg='#323232',
+                                fg='#FFFFFF')
 
         # placing the label and entry in the grid of the fus frame
         fus_label.grid(row=0, column=0, columnspan=2)
@@ -594,9 +631,18 @@ class PcdApp(tk.Tk):
         ampvec_disp = tk.Label(self.fusframe, textvariable=self.ampVecString, font=('calibre', 10, 'normal'), bg='#323232', fg='#90b8f8', wraplength="1.7i")
         ampvec_disp.grid(row=8, column=1, columnspan=2)
 
+        # add steering
+        steer_labelX.grid(row=9, column=0)
+        sx_entry.grid(row=9, column=1)
+        steer_labelY.grid(row=10, column=0)
+        sy_entry.grid(row=10, column=1)
+        steer_labelZ.grid(row=11, column=0)
+        sz_entry.grid(row=11, column=1)
+
         # add a button to refresh values when user inputs changes
         butt = tk.Button(self.fusframe, text="Apply changes", command=self.get_amps, height=1, width=24, pady=3, padx=3, bg='#aaaaaa', fg='#000000', font=('calibre', 10, 'normal'))
-        butt.grid(row=9, column=0)
+        butt.grid(row=12, column=0)
+
 
     def fillGen(self):
         # Fill the generator panel ################################
@@ -724,6 +770,7 @@ class PcdApp(tk.Tk):
     def get_amps(self):
         # this function takes the nAmps, AmpInc, and AmpVar and creates the list
         # of amplitudes to be used in background computation
+        # it also updates steering coordinates
 
         # first check if nAmps is even. If so add one number to it
         if int(self.nAmps.get()) % 2 == 0:
@@ -747,6 +794,16 @@ class PcdApp(tk.Tk):
         tempString = tempString[0:-2]
         print(tempString)
         self.ampVecString.set(tempString)
+
+        # update steering
+        temp = list(self.steeringCoord)
+        temp[0] = float(self.steerX.get())
+        temp[1] = float(self.steerY.get())
+        temp[2] = float(self.steerZ.get())
+        self.steeringCoord = tuple(temp)
+        print('new steering: ')
+        print(self.steeringCoord)
+
 
 # Call window
 root = PcdApp()
