@@ -93,6 +93,8 @@ class PcdApp(tk.Tk):
         self.traj = []
         self.execMode = FUSTHON.ElecExecMode.NORMAL
         self.trigMode = FUSTHON.TriggerMode.ONE_PULSE_FOR_EVERYTHING
+        utils.initLog(self.fus,'logfiles/logFile')
+        self.fus.setLogLevel(FUSTHON.LogLevel.ERROR)  # only log errors
 
         # fft processing
         #self.sampRate = self.devSampRate[0]
@@ -235,8 +237,6 @@ class PcdApp(tk.Tk):
         self.shot.setPhase(0, 0)  # set phase[0] = 0  (values in [0,255] = [0,360]deg)
         freq = int(float(self.FreqVar.get())*1000000)
         self.shot.setFrequency(0, freq)  # set frequency[0] = 1 MHz
-        print('frequency (Hz): ')
-        print(freq)
         self.shot.setAmplitude(0, int(self.AmpVar.get()))
 
         # get steering phases
@@ -256,8 +256,6 @@ class PcdApp(tk.Tk):
             freqCent = int(self.FreqVar.get())*1000000 / self.freqRes  # center of fundamental in samples
             freqCent = int(round(freqCent))
             self.freqMask[(freqCent*i + freqCent)-wsPix:(freqCent*i + freqCent)+wsPix,0] = 1
-            print(freqCent*i+freqCent)
-            print(wsPix)
 
         # compute ICMask
         freqCent = int(self.FreqVar.get()) * 1000000 / self.freqRes  # center of fundamental in samples
@@ -353,7 +351,7 @@ class PcdApp(tk.Tk):
         # compute spectrum of baselines and then average
         spec = np.fft.fft(data,axis=1)
         avespec = np.average(spec, axis=0)
-        return(avespec[0:self.freqpoints])
+        return(np.abs(avespec[0:self.freqpoints]))
 
     def pulseEcho(self):
         # arm picoscope
@@ -429,13 +427,12 @@ class PcdApp(tk.Tk):
         maxAmp = round(maxAmp)
         maxAmp = int(maxAmp)
         maxAmp = str(maxAmp)
-        print(maxAmp)
         if self.AmpVar.get() != maxAmp:  # true if already at max ampVec value
             foo = int(self.AmpVar.get()) + int(self.AmpInc.get())
             self.AmpVar.set(str(foo))
             self.ampIndex = self.ampIndex + 1
         else:
-            print('already at max amplitude')
+            print('Reached max amp')
 
     def saveData(self):
         print('saving data')
@@ -479,7 +476,6 @@ class PcdApp(tk.Tk):
         minAmp = round(minAmp)
         minAmp = int(minAmp)
         minAmp = str(minAmp)
-        print(minAmp)
         if self.AmpVar.get() != minAmp:  # true if already at min ampVec value
             foo = int(self.AmpVar.get())- int(self.AmpInc.get())
             self.AmpVar.set(str(foo))
@@ -517,7 +513,7 @@ class PcdApp(tk.Tk):
         Fvec = np.fft.fft(vec)  # raw spectrum for this timepoint
 
         # implement baseline subtraction here based on current amplitude
-        FvecSub = np.abs(Fvec[0, 0:self.freqpoints]) - np.abs(self.baselines[:, self.ampIndex])
+        FvecSub = np.abs(Fvec[0, 0:self.freqpoints]) - self.baselines[:, self.ampIndex]
 
         # insert into spect data
         self.spectData[:, self.curr] = np.log10(np.abs(FvecSub[0:self.freqpoints])+.001)
