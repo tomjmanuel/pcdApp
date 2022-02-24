@@ -75,7 +75,7 @@ class runPico:
 		trigRange = ps.PS5000A_RANGE['PS5000A_500MV']
 		threshold = int(mV2adc(20,trigRange, self.maxADC))
 		direction = 2 # PS5000A_RISING
-		delay = 0 # seconds
+		delay = 30000 # samples (uint32)
 		autoTrigger = 0 # set to 0, makes picoscope wait indefinitely for a rising edge
 		self.status["trigger"] = ps.ps5000aSetSimpleTrigger(self.chandle, enabled, source, threshold, direction, delay, autoTrigger)
 		assert_pico_ok(self.status["trigger"])

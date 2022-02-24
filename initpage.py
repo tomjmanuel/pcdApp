@@ -77,10 +77,12 @@ class PcdApp(tk.Tk):
         self.Pico = []                                                  # object for interfacing with picoscope (initialized in connectPico)
         self.timebase = 4  # 9-> dt = 96                                # sets the sample interval
         self.recordTime = 500E-6                                        # how long the scope records
-        self.vRange = "PS5000A_1V"                                     # voltage range for picoscope, try 10,20,50,100,200MV or 1 2 5 10V
+        self.vRange = "PS5000A_10V"                                     # voltage range for picoscope, try 10,20,50,100,200MV or 1 2 5 10V
         self.sampleInterval = (self.timebase - 3) / 62500000                 # dt / samp
         self.postTrigSamps = np.int(np.round(self.recordTime / self.sampleInterval))  # n samples
         self.picoIsConnected = 0
+        print('postTrigSamps')
+        print(self.postTrigSamps)
 
         # generator variables
         self.fus = FUSTHON.FUS()
@@ -148,6 +150,7 @@ class PcdApp(tk.Tk):
         self.picoframe = tk.Frame(rightframe, bg="#323232", height=round(self.ha/2), width=round(self.wa/2))
         self.picoframe.grid(row=1, column=0)
         self.picoframe.grid(padx=pad, pady=pad)
+        self.genframe.grid_propagate(False)
 
         # create the therapy frame (full therapy window)
         self.therframe = tk.Toplevel(bg="#000000", height=round(self.ha*1.5), width=round(self.wa*1.5))
@@ -249,19 +252,26 @@ class PcdApp(tk.Tk):
         self.ICMask = np.zeros((len(self.freqVec), 1))
         # freqmask is a logically array that is 1's in the frequency bins (1 Mhz 2 MHz, 3 MHz)
         # also create an IC mask between 1st and 2nd harmonic
-        ws = 1000  # size of frequency bin (hz) (it will be +/- ws)
-        wsPix = int(round(ws/self.freqRes))  # number of points that are equivalent to ws
+        #ws = 5  # size of frequency bin (hz) (it will be +/- ws)
+        wsPix = 5 # int(round(ws/self.freqRes))  # number of points that are equivalent to ws
         numWin = 3     # number of harmonics to incluse (starts at fundamental)
         for i in range(numWin):
             freqCent = int(self.FreqVar.get())*1000000 / self.freqRes  # center of fundamental in samples
             freqCent = int(round(freqCent))
-            self.freqMask[(freqCent*i + freqCent)-wsPix:(freqCent*i + freqCent)+wsPix,0] = 1
+            self.freqMask[(freqCent*(i+1) + freqCent)-wsPix:(freqCent*(i+1) + freqCent)+wsPix, 0] = 1
+
+        # also add in 1.5 f0
+        onepfive = int(round(freqCent*1.5))
+        self.freqMask[onepfive-wsPix: onepfive+wsPix, 0] = 1
 
         # compute ICMask
         freqCent = int(self.FreqVar.get()) * 1000000 / self.freqRes  # center of fundamental in samples
         begin = int(freqCent + wsPix*2)
         fin = int(freqCent*2 - wsPix*2)
         self.ICMask[begin:fin,0] = 1
+
+        # remove 1.5 f0 from IC vec
+        self.ICMask[onepfive - wsPix: onepfive + wsPix, 0] = 0
 
     def do_therapy(self):
         # here is the run loop for the therapy
@@ -728,12 +738,12 @@ class PcdApp(tk.Tk):
 
         # place erthing in grid
         pico_label.grid(row=0, column=0, columnspan=2)
-        savedirdisp.grid(row=1, column=0)
-        savedirlab.grid(row=1, column=1)
-        savebutt.grid(row=2,column=0, columnspan=2)
-        connectpicobutt.grid(row=3, column=0)
-        picocanvas.grid(row=3, column=1)
-        disconnectpicobutt.grid(row=4, column=0)
+        savedirdisp.grid(row=2, column=0)
+        savedirlab.grid(row=2, column=1)
+        savebutt.grid(row=4,column=0)
+        connectpicobutt.grid(row=5, column=0)
+        picocanvas.grid(row=5, column=1)
+        disconnectpicobutt.grid(row=6, column=0)
 
     def getSaveDir(self):
         fn = fd.askdirectory( initialdir=self.saveDir.get())
