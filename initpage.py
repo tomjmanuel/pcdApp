@@ -34,11 +34,12 @@ class PcdApp(tk.Tk):
         # dev puposes only- grab simulated data
         # load in developement data
         # variables = {'dataFull': dataFull, 'baselines': baselines, 'sampRate': sampRate}
+        '''
         self.devData = loadmat('devData.mat')
         self.devDataFull = self.devData['dataFull']
         self.devDataFull = self.devDataFull[10:-1, :]
         self.devBaselines = self.devData['baselines']
-        self.devSampRate = self.devData['sampRate']
+        self.devSampRate = self.devData['sampRate']'''
 
         # initialization variables
         self.FreqVar = tk.StringVar(value="1")          # MHz
@@ -113,6 +114,7 @@ class PcdApp(tk.Tk):
         self.ICMask = np.array([])                                                               # ones between 1st and 2nd harmonic
         self.baselines = np.array([])                                                            # array to store baseline spectrums
         self.rawBaselines = []
+        self.baselineSCIC = np.array([])
 
         # setup app window size with variables based on screen resolution
         ww = self.winfo_screenwidth()    # screen width px
@@ -260,11 +262,15 @@ class PcdApp(tk.Tk):
             freqCent = int(round(freqCent))
             self.freqMask[(freqCent*(i+1) + freqCent)-wsPix:(freqCent*(i+1) + freqCent)+wsPix, 0] = 1
 
-        # also add in 1.5 f0
+        # also add in 1.5, 0.5, and 2.5 f0
         onepfive = int(round(freqCent*1.5))
+        zeropfive = int(round(freqCent*0.5))
+        twopfive = int(round(freqCent * 2.5))
         self.freqMask[onepfive-wsPix: onepfive+wsPix, 0] = 1
+        self.freqMask[zeropfive - wsPix: zeropfive + wsPix, 0] = 1
+        self.freqMask[twopfive - wsPix: twopfive + wsPix, 0] = 1
 
-        # compute ICMask
+        # compute ICMask (1 to 2 MHz
         freqCent = int(self.FreqVar.get()) * 1000000 / self.freqRes  # center of fundamental in samples
         begin = int(freqCent + wsPix*2)
         fin = int(freqCent*2 - wsPix*2)
@@ -314,6 +320,7 @@ class PcdApp(tk.Tk):
         minAmp = str(minAmp)
         self.AmpVar.set(minAmp)
         self.baselines = np.zeros((self.freqpoints, int(self.nAmps.get()))) # freqpoints by number of amps
+        self.baselineSCIC = np.zeros((2, int(self.nAmps.get())))
         for ii in range(int(self.nAmps.get())):
             print('collecting baseline for Amp = ' + self.AmpVar.get())
             for jj in range(self.nblave):
@@ -327,6 +334,10 @@ class PcdApp(tk.Tk):
                 sleep(0.1)
             # compute fft of baseline and average it
             self.baselines[:, ii] = self.procBaseline(self.Pico.getDataA())
+
+            # compute IC and SC values for this baseline and store it for future subtraction
+            # baselineSCIC is 2 by nBL with 1 being SC, 2 being IC on first dimension
+            self.getICSC_Baselines(self.baselines[:,ii], ii)
 
             # display the last baseline to check if clipping
             self.displayBaseline(self.Pico.getDataA())
@@ -537,8 +548,6 @@ class PcdApp(tk.Tk):
         upperBound = np.max(FvecSubResamp)
         lowerBound = np.average(FvecSubResamp)
         lowerBound = lowerBound + np.std(FvecSubResamp)
-        print(upperBound)
-        print(lowerBound)
 
         #display
         self.spectFigPlt.cla()
@@ -556,6 +565,19 @@ class PcdApp(tk.Tk):
         self.lpcanvas.draw_idle()
 
 
+    def getICSC_Baselines(self, vec,ind):
+        # takes fft.fft of raw baseline data (vec)
+        # index tells which baseline you are on
+        # takes its logarithm and finds the energy in SC and IC bands
+        vec2 = np.log10(np.abs(vec[0:self.freqpoints]) + .001)
+
+        # SC
+        foo = self.freqMask[:, 0] * vec2[0:len(self.freqMask)]  # multiply spectData by freqMask (1s within harmonic windows)
+        self.baselineSCIC[0, ind] = np.sum(foo[:]) / np.sum(self.freqMask)  # sum and scale by number of points in mask
+        # IC
+        foo = self.ICMask[:, 0] * vec2[0:len(self.ICMask)]  # multiply spectData by IC mask
+        self.baselineSCIC[1, ind] = np.sum(foo[:]) / np.sum(self.ICMask)
+
     def updateIcSc(self):
         # update the IC and SC data
         if self.ICvec.size == 0: # true on initialization
@@ -569,17 +591,20 @@ class PcdApp(tk.Tk):
                 # I want SC and IC to be in the same scale relatively
                 # one idea is to scale them such that they are scaled by number of bins included in calculation
 
-                # get noise floor (average of everything not in SC window
+                ''''# get noise floor (average of everything not in SC window
                 notSCmask = np.abs(self.freqMask[:, 0] -1)
                 foo = notSCmask * self.spectData[0:len(self.freqMask), self.curr] # opposite of freq mask times spect data
-                noisefloor = np.sum(foo[:]) / np.sum(notSCmask)
+                noisefloor = np.sum(foo[:]) / np.sum(notSCmask)'''
 
                 # SC
                 foo = self.freqMask[:, 0] * self.spectData[0:len(self.freqMask), self.curr] # multiply spectData by freqMask (1s within harmonic windows)
-                self.SCvec[self.curr] = np.sum(foo[:]) / np.sum(self.freqMask) - noisefloor # sum and scale by number of points in mask
+                self.SCvec[self.curr] = np.sum(foo[:]) / np.sum(self.freqMask) - self.baselineSCIC[0,self.ampIndex] # sum and scale by number of points in mask
+                print(self.baselineSCIC[0,self.ampIndex])
+
                 # IC
                 foo = self.ICMask[:, 0] * self.spectData[0:len(self.ICMask), self.curr] # multiply spectData by IC mask
-                self.ICvec[self.curr] = np.sum(foo[:]) / np.sum(self.ICMask) - noisefloor
+                self.ICvec[self.curr] = np.sum(foo[:]) / np.sum(self.ICMask) - self.baselineSCIC[1,self.ampIndex]
+                print(self.baselineSCIC[1, self.ampIndex])
 
 
                 # display
