@@ -23,6 +23,7 @@ import FUSTHON
 import utils as utils
 import numpy as np
 import transducerXYZ
+from scipy.ndimage import gaussian_filter1d
 
 class PcdApp(tk.Tk):
 
@@ -63,11 +64,13 @@ class PcdApp(tk.Tk):
         self.spectImage = np.array([])                               # image representation of spectrogram
         self.nPulses = int(float(self.PrfVar.get()) * int(self.duration.get()) )   # number of pulses (computed from PRF and duration
         self.ICvec = np.array([])                                    # inertial caviation dose
+        self.ICvecSmooth = np.array([])                              # inertial caviation dose running average
         self.SCvec = np.array([])                                    # stable cavitation dose
+        self.SCvecSmooth = np.array([])                              # stable cavitation dose running average
         self.curr = int(0)                                              # iter value that tracks which shot we are on
         self.emergencyStop = 0                                          # flag to stop therapy if you push the stop button
-        self.aspect = 30                                                # aspect ratio on spectrogram imshow
-        self.nblave = 15                                                 # number of baselines to average for each amp
+        self.aspect = 35                                               # aspect ratio on spectrogram imshow
+        self.nblave = 2 #15                                              # number of baselines to average for each amp
         self.ampIndex = int(round(int(self.nAmps.get())/2)-1)           # increases and decreases by one when amp is increased or decreased, initialize in middle of range
         self.baselinesCollected = 0                                     # set to 1 if baselines are collected, reset to zero when parameters are updated
         self.ampVsTime = []                                             # this will be a list that has the amp used for each pulse (tracks chaning amps through therapy)
@@ -76,8 +79,8 @@ class PcdApp(tk.Tk):
 
         # picoscope variables
         self.Pico = []                                                  # object for interfacing with picoscope (initialized in connectPico)
-        self.timebase = 4  # 9-> dt = 96                                # sets the sample interval
-        self.recordTime = 500E-6                                        # how long the scope records
+        self.timebase = 6  # 9-> dt = 96      (was4)                    # sets the sample interval
+        self.recordTime = 500E-6                                        # how long the scope records (it tries but can't always do this length)
         self.vRange = "PS5000A_10V"                                     # voltage range for picoscope, try 10,20,50,100,200MV or 1 2 5 10V
         self.sampleInterval = (self.timebase - 3) / 62500000                 # dt / samp
         self.postTrigSamps = np.int(np.round(self.recordTime / self.sampleInterval))  # n samples
@@ -103,13 +106,14 @@ class PcdApp(tk.Tk):
         #self.sampRate = self.devSampRate[0]
         self.sampRate = int(1/self.sampleInterval)
         self.freqpoints = int(self.postTrigSamps/2)                                                             # number of points in single sided fft
-        self.dsf = 10                                                                              # downsample spectrogram for display
-        self.freqCrop = 5                                                                           # 2: 50% (only display first 50% of spectrum)
+        self.dsf = 2                                                                              # downsample spectrogram for display (was 10 for timebase 4)
+        self.freqCrop = 2                                                                           # 2: 50% (only display first 50% of spectrum) (was 5 for timebase 4)
         self.freqRes = self.sampRate / (self.freqpoints * 2)                                        # sample rate / number of time points
         self.freqVec = self.freqRes*np.arange(np.round(self.freqpoints/self.freqCrop)) / 1000000          # (MHz) freq axis for line plot (cropped but not downsampled)
-        self.npointscropped = int(round(len(self.freqVec) / self.dsf))
+        #self.npointscropped = int(round(len(self.freqVec) / self.dsf))
         #self.freqVecDS = resample(self.freqVec, self.npointscropped)                                # (MHz) freq axis for spectrogram (cropped and downsampled)
         self.freqVecDS = self.freqVec[0::self.dsf]
+        self.npointscropped = len(self.freqVecDS)
         self.freqMask = np.array([])                                                             # used to compute SC
         self.ICMask = np.array([])                                                               # ones between 1st and 2nd harmonic
         self.baselines = np.array([])                                                            # array to store baseline spectrums
@@ -255,12 +259,12 @@ class PcdApp(tk.Tk):
         # freqmask is a logically array that is 1's in the frequency bins (1 Mhz 2 MHz, 3 MHz)
         # also create an IC mask between 1st and 2nd harmonic
         #ws = 5  # size of frequency bin (hz) (it will be +/- ws)
-        wsPix = 5 # int(round(ws/self.freqRes))  # number of points that are equivalent to ws
+        wsPix = 20 # int(round(ws/self.freqRes))  # number of points that are equivalent to ws (was 5 for timebase 4)
         numWin = 3     # number of harmonics to incluse (starts at fundamental)
         for i in range(numWin):
             freqCent = int(self.FreqVar.get())*1000000 / self.freqRes  # center of fundamental in samples
             freqCent = int(round(freqCent))
-            self.freqMask[(freqCent*(i+1) + freqCent)-wsPix:(freqCent*(i+1) + freqCent)+wsPix, 0] = 1
+            self.freqMask[(freqCent*(0) + freqCent)-wsPix:(freqCent*(0) + freqCent)+wsPix, 0] = 1
 
         # also add in 1.5, 0.5, and 2.5 f0
         onepfive = int(round(freqCent*1.5))
@@ -350,9 +354,9 @@ class PcdApp(tk.Tk):
         # mark baselines as collected
         self.baselinesCollected = 1
 
-        # return amp var to original value
-        self.AmpVar.set(originalAmp)
-        self.ampIndex = origampind  # also reset amp index
+        # return amp var to min value (start therapy at minimum)
+        self.AmpVar.set(minAmp)
+        self.ampIndex = 0  # also reset to lowest index
         #
 
     def displayBaseline(self, data):
@@ -540,9 +544,15 @@ class PcdApp(tk.Tk):
         self.spectData[:, self.curr] = np.log10(np.abs(FvecSub[0:self.freqpoints])+.001)
 
         # downsample for image representation
-        FvecSubResamp = resample(self.spectData[:, self.curr], int(self.freqpoints / self.dsf))
+        #FvecSubResamp = resample(self.spectData[:, self.curr], int(self.freqpoints / self.dsf)) # old resample (may not be correct due to assumptions in resample)
+        FvecSubResamp = np.interp(self.freqVecDS,self.freqVec,self.spectData[0:int(self.freqpoints/self.freqCrop), self.curr])
+
+        # gauss blur
+        FvecSubResamp = gaussian_filter1d(FvecSubResamp, 5)
+
         # place resampled subtracted vector into image (use freq crop here)
-        self.spectImage[:, self.curr] = FvecSubResamp[0:len(self.freqVecDS)-1]
+        # self.spectImage[:, self.curr] = FvecSubResamp[0:len(self.freqVecDS)-1]
+        self.spectImage[:, self.curr] = FvecSubResamp[0:self.npointscropped]
 
         # get upper and lower bounds for spectImage contrast
         upperBound = np.max(FvecSubResamp)
@@ -555,7 +565,7 @@ class PcdApp(tk.Tk):
         self.SpectCanvas.draw_idle()
         self.lpFigPlt.cla()
         self.lpFigPlt.plot(self.spectData[0:len(self.freqVec), self.curr], self.freqVec)
-        self.lpFigPlt.set_xlim([lowerBound, upperBound])
+        self.lpFigPlt.set_xlim([lowerBound, 1.5*upperBound])
 
         # optionaly display the bins used for SC and IC calculation
         #self.lpFigPlt.plot(self.ICMask[0:len(self.freqVec), 0], self.freqVec)
@@ -583,6 +593,8 @@ class PcdApp(tk.Tk):
         if self.ICvec.size == 0: # true on initialization
             self.ICvec = np.zeros((int(self.nPulses), 1))
             self.SCvec = np.zeros((int(self.nPulses), 1))
+            self.ICvecSmooth = np.zeros((int(self.nPulses), 1))
+            self.SCvecSmooth = np.zeros((int(self.nPulses), 1))
         else:
 
             # if therapy is running
@@ -591,28 +603,31 @@ class PcdApp(tk.Tk):
                 # I want SC and IC to be in the same scale relatively
                 # one idea is to scale them such that they are scaled by number of bins included in calculation
 
-                # get noise floor (average of everything not in SC or IC window
+                ''''# get noise floor (average of everything not in SC or IC window
                 notSCmask = np.abs(self.freqMask[:, 0] -1) + np.abs(self.ICMask[:,0] -1)
                 foo = notSCmask * self.spectData[0:len(self.freqMask), self.curr] # opposite of freq mask times spect data
-                noisefloor = np.sum(foo[:]) / np.sum(notSCmask)
+                noisefloor = np.sum(foo[:]) / np.sum(notSCmask)'''
 
                 # SC
                 foo = self.freqMask[:, 0] * self.spectData[0:len(self.freqMask), self.curr] # multiply spectData by freqMask (1s within harmonic windows)
-                #self.SCvec[self.curr] = np.sum(foo[:]) / np.sum(self.freqMask) - self.baselineSCIC[0,self.ampIndex] # sum and scale by number of points in mask
-                self.SCvec[self.curr] = np.sum(foo[:]) / np.sum(self.freqMask) - noisefloor
-                #print(self.baselineSCIC[0,self.ampIndex])
+                scVal = np.sum(foo[:]) / np.sum(self.freqMask)
 
                 # IC
                 foo = self.ICMask[:, 0] * self.spectData[0:len(self.ICMask), self.curr] # multiply spectData by IC mask
-                #self.ICvec[self.curr] = np.sum(foo[:]) / np.sum(self.ICMask) - self.baselineSCIC[1,self.ampIndex]
-                self.ICvec[self.curr] = np.sum(foo[:]) / np.sum(self.ICMask) - noisefloor
-                #print(self.baselineSCIC[1, self.ampIndex])
+                icVal = np.sum(foo[:]) / np.sum(self.ICMask)
 
+                self.ICvec[self.curr] = icVal
+                self.SCvec[self.curr] = scVal
+                ww = 5 # window size for running ave
+
+                if self.curr > ww:
+                    self.ICvecSmooth[self.curr] = np.mean(self.ICvec[self.curr-ww:self.curr]) - np.mean(self.ICvec[0:ww-1])
+                    self.SCvecSmooth[self.curr] = np.mean(self.SCvec[self.curr-ww:self.curr]) - np.mean(self.SCvec[0:ww-1])
 
                 # display
                 self.icFigPlt.cla()
-                self.icFigPlt.plot(self.SCvec, label="SC dose")
-                self.icFigPlt.plot(self.ICvec, label="IC dose")
+                self.icFigPlt.plot(self.SCvecSmooth, label="SC dose")
+                self.icFigPlt.plot(self.ICvecSmooth, label="IC dose")
                 self.icFigPlt.legend(loc="upper right")
                 self.SCcanvas.draw_idle()
         #
@@ -624,6 +639,12 @@ class PcdApp(tk.Tk):
             print('open therapy')
             self.therframe.deiconify()
             self.main_frame.pack_forget()
+
+            self.ICvec = np.zeros((int(self.nPulses), 1))
+            self.SCvec = np.zeros((int(self.nPulses), 1))
+            self.ICvecSmooth = np.zeros((int(self.nPulses), 1))
+            self.SCvecSmooth = np.zeros((int(self.nPulses), 1))
+
         else:
             if not self.genIsConnected:
                 print('generator not connected')

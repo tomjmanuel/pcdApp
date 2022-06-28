@@ -22,15 +22,45 @@ Data 4 but using as much bubbles as I can fit into 2 mL of water (1 mL of bubble
 
 Data 5: same as 4 but doing amps 1-9 (0.3 to 0.9 MPa)
 
+Data6: trying time base 9 (dt = 96 ns)
+Data7: trying timebase 6 (dt = 46 ns)
+
 %% IDEAS to impement in pcdapp
-1. running average (20 tpts /10 s) for IC and SC
+1. running average (10 tpts) for IC and SC
+- done
 
 2. use average of first 10 IC and SC for noisefloor (flow bubbles 30 s in)
+- done
 
 3. less freq res (longer acquisition)
+- done, timebase 6 (dt = 46 ns) with 500 us acquisition is in use rn
 
 4. guass blur on spectrograms
 	- tried in matlab, it seems useful
+	done (blurred 1d going into spectImage
+
+5. DC offset? seems to show up sometimes
+
+6. Fix resample
+- check, replaced with np.interp
+
+
+data8. 
+first try with bubbles with all these fixes
+line plots were almost useless until at high pressures (maybe we aren't centered?)
+
+Add in 1 MHz to SC mask, double check what window size should be should be +/- 10 khz which is .01 MHz or 5 samples with
+timebase 6
+
+data11: flow rate 20 ml/hr, 4 ml water 0.5 ml bubble juice, steered inward -10 (0,0,-10)
+going to try it again but with huge pressure range, I wonder if we aren't at the focus so we aren't actually getting the pressure we suspect
+
+data12: same as data 11 but with huge pressure range. This one behaves like we want but takes crazy high pressure. I suspect I am not at the focus. going to retry to find the focus and do this again
+This one has good increase in both SC and IC
+
+
+
+
 
 
 

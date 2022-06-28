@@ -3,7 +3,7 @@
 % Rather than just plot what I have saved, I am trying to double check
 % this datas processing as it will likely be published
 
-fn = 'data4.mat'; % higher pressure at first then dropped down
+fn = 'data13.mat'; % higher pressure at first then dropped down
 %fn = 'try2_bubs.mat'; %
 load(fn);
 prf = str2num(prf);
@@ -25,12 +25,13 @@ ampsUsedInt = str2num(ampsUsed);
 % frequencies
 
 % make the spectrogram image
-nfreqPts = 2001; % crop freq additionally 
-ntpts = length(ampsUsedInt);
+nfreqPts = length(freqAxis); % crop freq additionally 
+%ntpts = length(ampsUsedInt);
+ntpts = size(SpectData,2);
 tarray = (0:ntpts-1)./prf; % time array in seconds
 %Clim = [3.17 4.25]; % therapy 1contrast range (use imtool to find)
 %Clim = [3.1 3.9]; % therapy 2
-Clim = [3 6];
+Clim = [2.5 5];
 figure
 imagesc(tarray,freqAxis(1:nfreqPts),SpectData(1:nfreqPts,1:ntpts),Clim);
 colormap('gray')
@@ -43,7 +44,7 @@ set(gcf,'color','white')
 % this data was collected prior to when I updated IC and SC mask, 
 % so I need to recreate them
 ind1Mhz = 501;
-ws = 5;
+ws = 10;
 ICmask = ICmask.*0; SCmask = SCmask.*0;
 ICmask(ind1Mhz+ws:2*ind1Mhz-ws)=1; % add 1 to 2 Mhz zone
 ICmask(ind1Mhz*1.5-ws:ind1Mhz*1.5+ws)=0; % remove 1.5 harmonic 
@@ -96,23 +97,6 @@ xlabel('time (s)')
 xlim([0 tarray(end)])
 set(gcf,'color','white')
 
-%% use ic and sc vec from pcdapp
-dsf = 20;
-scsmooth = movmean(SCVec,dsf);
-icsmooth = movmean(ICVec,dsf);
-
-figure
-plot(tarray,SCVec(1:ntpts),'color',[0.5 0.5 0.5],'lineStyle','--')
-hold on
-plot(tarray,scsmooth(1:ntpts),'linewidth',2,'color',[0.5 0.5 0.5])
-plot(tarray,ICVec(1:ntpts),'color',[0.2 0.2 0.2],'lineStyle','--')
-plot(tarray,icsmooth(1:ntpts),'linewidth',2,'color',[0.2 0.2 0.2])
-legend('Stable cavitation','Stable cavitation average','Inertial cavitation','Inertial cavitation average')
-ylabel('Cavitation signal (a.u.)');
-xlabel('time (s)')
-%ylim([-0.15 4])
-xlim([0 tarray(end)])
-set(gcf,'color','white')
 
 %% plot pressure used vs time (therapy 1)
 % amp val: 29 	39 	49 	59 	69 	79 	89
@@ -130,7 +114,7 @@ Bfitn10 = .1925;
 pres = ampsUsedInt.*Afitn10 + Bfitn10;
 
 figure
-plot(tarray,pres,'linewidth',1,'color',[0 0 0])
+plot(tarray,pres(1:ntpts),'linewidth',1,'color',[0 0 0])
 xlabel('time (s)')
 ylabel('PNP MPa')
 %ylim([0.4 0.8])

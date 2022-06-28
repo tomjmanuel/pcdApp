@@ -68,23 +68,24 @@ class runPico:
 		self.maxADC = ctypes.c_int16()
 		self.status["maximumValue"] = ps.ps5000aMaximumValue(self.chandle, ctypes.byref(self.maxADC))
 		assert_pico_ok(self.status["maximumValue"])
-		
-		# Set up single trigger
-		enabled = 1
-		source = ps.PS5000A_CHANNEL["PS5000A_EXTERNAL"]
-		trigRange = ps.PS5000A_RANGE['PS5000A_500MV']
-		threshold = int(mV2adc(20,trigRange, self.maxADC))
-		direction = 2 # PS5000A_RISING
-		delay = 30000 # samples (uint32)
-		autoTrigger = 0 # set to 0, makes picoscope wait indefinitely for a rising edge
-		self.status["trigger"] = ps.ps5000aSetSimpleTrigger(self.chandle, enabled, source, threshold, direction, delay, autoTrigger)
-		assert_pico_ok(self.status["trigger"])
 
 		# segment index = 0
 		self.timeIntervalns = ctypes.c_float()
 		#self.postTriggerSamples = ctypes.c_int32()
 		self.status["getTimebase2"] = ps.ps5000aGetTimebase2(self.chandle, self.timebase, self.PTSlong, ctypes.byref(self.timeIntervalns), ctypes.byref(self.postTriggerSamples), 0)
 		assert_pico_ok(self.status["getTimebase2"])
+
+		# Set up single trigger
+		enabled = 1
+		source = ps.PS5000A_CHANNEL["PS5000A_EXTERNAL"]
+		trigRange = ps.PS5000A_RANGE['PS5000A_500MV']
+		threshold = int(mV2adc(20,trigRange, self.maxADC))
+		direction = 2 # PS5000A_RISING
+		delay = 60 # us
+		delaySamp = int(delay*1E-3 / self.timeIntervalns.value)
+		autoTrigger = 0 # set to 0, makes picoscope wait indefinitely for a rising edge
+		self.status["trigger"] = ps.ps5000aSetSimpleTrigger(self.chandle, enabled, source, threshold, direction, delaySamp, autoTrigger)
+		assert_pico_ok(self.status["trigger"])
 		
 	def runBlock(self):
 		self.status["runBlock"] = ps.ps5000aRunBlock(self.chandle, 0, self.PTSint, self.timebase, None, 0, None, None)
