@@ -591,20 +591,22 @@ class PcdApp(tk.Tk):
                 # I want SC and IC to be in the same scale relatively
                 # one idea is to scale them such that they are scaled by number of bins included in calculation
 
-                ''''# get noise floor (average of everything not in SC window
-                notSCmask = np.abs(self.freqMask[:, 0] -1)
+                # get noise floor (average of everything not in SC or IC window
+                notSCmask = np.abs(self.freqMask[:, 0] -1) + np.abs(self.ICMask[:,0] -1)
                 foo = notSCmask * self.spectData[0:len(self.freqMask), self.curr] # opposite of freq mask times spect data
-                noisefloor = np.sum(foo[:]) / np.sum(notSCmask)'''
+                noisefloor = np.sum(foo[:]) / np.sum(notSCmask)
 
                 # SC
                 foo = self.freqMask[:, 0] * self.spectData[0:len(self.freqMask), self.curr] # multiply spectData by freqMask (1s within harmonic windows)
-                self.SCvec[self.curr] = np.sum(foo[:]) / np.sum(self.freqMask) - self.baselineSCIC[0,self.ampIndex] # sum and scale by number of points in mask
-                print(self.baselineSCIC[0,self.ampIndex])
+                #self.SCvec[self.curr] = np.sum(foo[:]) / np.sum(self.freqMask) - self.baselineSCIC[0,self.ampIndex] # sum and scale by number of points in mask
+                self.SCvec[self.curr] = np.sum(foo[:]) / np.sum(self.freqMask) - noisefloor
+                #print(self.baselineSCIC[0,self.ampIndex])
 
                 # IC
                 foo = self.ICMask[:, 0] * self.spectData[0:len(self.ICMask), self.curr] # multiply spectData by IC mask
-                self.ICvec[self.curr] = np.sum(foo[:]) / np.sum(self.ICMask) - self.baselineSCIC[1,self.ampIndex]
-                print(self.baselineSCIC[1, self.ampIndex])
+                #self.ICvec[self.curr] = np.sum(foo[:]) / np.sum(self.ICMask) - self.baselineSCIC[1,self.ampIndex]
+                self.ICvec[self.curr] = np.sum(foo[:]) / np.sum(self.ICMask) - noisefloor
+                #print(self.baselineSCIC[1, self.ampIndex])
 
 
                 # display

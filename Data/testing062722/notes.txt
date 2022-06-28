@@ -1,0 +1,39 @@
+Bubbles used today:
+made 05/02/22
+DSPC 90%
+DSPE-PEG2k 10%
+2.5 mg/ml JK
+
+Data1:
+- ramped pressure from 0.3 MPa up to 2 MPa. First test with new processing in pcdApp (removed noise floor and added baseline
+dependent SC and IC subtraction). 
+- Visualization didn't work right (everything showed similar IC and SC levels except toggling between 500 kPa and 800 kPa)
+
+I used most of a tip of bubbles mixed into 5 ml of water flowed at 10 ml/hr
+
+I think this is too succeptible the baseline SC and IC values. Going back to noise floor and trying again.
+
+Data2: same as data 1
+
+Data3 same as data 1 and 2, but noise floor changed to be everything outside SC and IC, rather than based on baselines
+We got a nice smooth increase in IC with some SC dynamics. Going to process in matlab and see how it looks
+
+Data 4 but using as much bubbles as I can fit into 2 mL of water (1 mL of bubble juice + 2ml of water
+
+Data 5: same as 4 but doing amps 1-9 (0.3 to 0.9 MPa)
+
+%% IDEAS to impement in pcdapp
+1. running average (20 tpts /10 s) for IC and SC
+
+2. use average of first 10 IC and SC for noisefloor (flow bubbles 30 s in)
+
+3. less freq res (longer acquisition)
+
+4. guass blur on spectrograms
+	- tried in matlab, it seems useful
+
+
+
+
+
+
