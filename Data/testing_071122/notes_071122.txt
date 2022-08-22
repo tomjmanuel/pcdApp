@@ -1,0 +1,7 @@
+data1 is first real data
+its at old sample rate (timebase 4)
+it has new sc and ic and spectrogram
+using 20 ml syringe, with hefty pull of bubbles diluted into 10 ml of water, through 4 mm id soft clear tubing pumped at 20 ml/hr
+
+water1 is like data1 except withwater only
+

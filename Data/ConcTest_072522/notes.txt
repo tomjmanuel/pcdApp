@@ -1,0 +1,35 @@
+Concentration test today
+Conc (ul/ml)	bub (ul) 	water (ml) 	name
+25		500		20		conc1
+18.75		375		20 		conc1b
+10		200		20		conc1a
+5		100		20		conc2
+1		20		20		conc3
+0.33		6.66		20		conc4
+
+Amp vals: 1 to 21 (11 amps, 2 ampInc), max pressure: 1.8 MPa
+Flow rate 1 mm/s (20 ml/hr with 20 ml syringe)
+Do 15 s at each with 2 Hz prf
+Find max of focus and then move it a little close (so focus is past wall of tube and in center of tube hopefully
+Is there a dilution way I can get to the concentration I want?
+Stock concentration: 25 ul/ml if I have 5 ml it becomes 125 ul If I add that to 15 ml of 0 it becomes 125 ul / 20 ml which is 6.25,
+I added 4 ml of 25ul/ml to 15 more ml of water to get to 5 ul/ml
+Creating 1 ul/ml by taking 4 ml of 4 ul/ml and adding 15 ul water
+Created 0.33 ul/ml by taking 7 ml of 1 ul/ml and adding 13 ml of water
+
+Last thing I’ll try since I have extra bubbles
+Put the tube in front of the max on the pico scope and slowly back away from xdcr
+See where max signal occurs with fixed amplitude
+Starting six half turns in front of max
+Working at conc1bmotortest is name and conc
+I brought it up to an amp val of 13, left it there a while and then did a half turn every ten seconds
+The signal came and went with a max at the true focus so I should prob just use true foci in the future.
+
+Got a new vial of bubbles
+Going straight to 10 ul/ml conc1a
+Worked as may be expected. Trying again to not waste left overs
+
+It did not really work. At first it was looking as expected but then the signal dropped out. Bubbles must have not been consistent throughout. This was conc2 try1.
+Going back to stock bubbles and trying conc2 again 
+Ended up trying two concentrations between 1 and 2
+I tried severy multiple times (repeated results)

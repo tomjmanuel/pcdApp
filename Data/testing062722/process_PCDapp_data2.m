@@ -3,7 +3,7 @@
 % Rather than just plot what I have saved, I am trying to double check
 % this datas processing as it will likely be published
 
-fn = 'data13.mat'; % higher pressure at first then dropped down
+fn = 'therapy2.mat'; % higher pressure at first then dropped down
 %fn = 'try2_bubs.mat'; %
 load(fn);
 prf = str2num(prf);
@@ -110,11 +110,12 @@ Bfitn10 = .1925;
 % pres(ampsUsedInt==59)= 4.6*.15;
 % pres(ampsUsedInt==49)= 3.9*.15;
 % pres(ampsUsedInt==39)= 3.1*.15
-
-pres = ampsUsedInt.*Afitn10 + Bfitn10;
+N = length(ampsUsedInt);
+T = 0.25;
+pres = T.*ampsUsedInt.*Afitn10 + Bfitn10;
 
 figure
-plot(tarray,pres(1:ntpts),'linewidth',1,'color',[0 0 0])
+plot(tarray(1:N),pres(1:N),'linewidth',1,'color',[0 0 0])
 xlabel('time (s)')
 ylabel('PNP MPa')
 %ylim([0.4 0.8])

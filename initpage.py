@@ -44,11 +44,11 @@ class PcdApp(tk.Tk):
 
         # initialization variables
         self.FreqVar = tk.StringVar(value="1")          # MHz
-        self.PrfVar = tk.StringVar(value="1")           # Hz
+        self.PrfVar = tk.StringVar(value="2")           # Hz
         self.duration = tk.StringVar(value="180")       # (s) therapy duration
-        self.AmpVar = tk.StringVar(value="9")          # Amp variable (0 to 255)
-        self.AmpInc = tk.StringVar(value="2")           # Amp (change value)
-        self.nAmps = tk.StringVar(value="5")            # n amps for baseline collection (sets range)
+        self.AmpVar = tk.StringVar(value="15")          # Amp variable (0 to 255)
+        self.AmpInc = tk.StringVar(value="3")           # Amp (change value)
+        self.nAmps = tk.StringVar(value="9")            # n amps for baseline collection (sets range)
         self.PulseLengthVar = tk.StringVar(value="10")  # ms
         self.ampVec = []                                # vector with ampVec strings
         self.ampVecString = tk.StringVar()              # string with concatenated amp vecs for display
@@ -56,8 +56,9 @@ class PcdApp(tk.Tk):
         self.saveDir = tk.StringVar(value='D:/pcdApp/Data')  # path to save picoscope data
         self.steerX = tk.StringVar(value="0")
         self.steerY = tk.StringVar(value="0")
-        self.steerZ = tk.StringVar(value="0")
+        self.steerZ = tk.StringVar(value="-10")
         self.steeringCoord = (0,0,0)     # steering [mm] (x,y,z) with +z away from ATAC and towards 650 kHz
+        self.loadBL = tk.StringVar(value="0")           # set to 1 if you want to load baselines saved at baselines.mat from prior data
 
         # therapy variables
         self.spectData = np.array([])                                # fft vs time data from pcd
@@ -69,17 +70,18 @@ class PcdApp(tk.Tk):
         self.SCvecSmooth = np.array([])                              # stable cavitation dose running average
         self.curr = int(0)                                              # iter value that tracks which shot we are on
         self.emergencyStop = 0                                          # flag to stop therapy if you push the stop button
-        self.aspect = 35                                               # aspect ratio on spectrogram imshow
-        self.nblave = 2 #15                                              # number of baselines to average for each amp
+        self.aspect = 15                                               # aspect ratio on spectrogram imshow
+        self.nblave = 15                                              # number of baselines to average for each amp
         self.ampIndex = int(round(int(self.nAmps.get())/2)-1)           # increases and decreases by one when amp is increased or decreased, initialize in middle of range
         self.baselinesCollected = 0                                     # set to 1 if baselines are collected, reset to zero when parameters are updated
         self.ampVsTime = []                                             # this will be a list that has the amp used for each pulse (tracks chaning amps through therapy)
         self.rawData = []
         self.therapyRunning = 0
+        self.ampIndVsTime = []                                          # holds the index for each timepoint (for post processing bL subtraction)
 
         # picoscope variables
         self.Pico = []                                                  # object for interfacing with picoscope (initialized in connectPico)
-        self.timebase = 6  # 9-> dt = 96      (was4)                    # sets the sample interval
+        self.timebase = 4  # 9-> dt = 96      (was4)                    # sets the sample interval
         self.recordTime = 500E-6                                        # how long the scope records (it tries but can't always do this length)
         self.vRange = "PS5000A_10V"                                     # voltage range for picoscope, try 10,20,50,100,200MV or 1 2 5 10V
         self.sampleInterval = (self.timebase - 3) / 62500000                 # dt / samp
@@ -106,8 +108,8 @@ class PcdApp(tk.Tk):
         #self.sampRate = self.devSampRate[0]
         self.sampRate = int(1/self.sampleInterval)
         self.freqpoints = int(self.postTrigSamps/2)                                                             # number of points in single sided fft
-        self.dsf = 2                                                                              # downsample spectrogram for display (was 10 for timebase 4)
-        self.freqCrop = 2                                                                           # 2: 50% (only display first 50% of spectrum) (was 5 for timebase 4)
+        self.dsf = 1                                                                              # downsample spectrogram for display (was 10 for timebase 4)
+        self.freqCrop = 5                                                                           # 2: 50% (only display first 50% of spectrum) (was 5 for timebase 4)
         self.freqRes = self.sampRate / (self.freqpoints * 2)                                        # sample rate / number of time points
         self.freqVec = self.freqRes*np.arange(np.round(self.freqpoints/self.freqCrop)) / 1000000          # (MHz) freq axis for line plot (cropped but not downsampled)
         #self.npointscropped = int(round(len(self.freqVec) / self.dsf))
@@ -259,12 +261,12 @@ class PcdApp(tk.Tk):
         # freqmask is a logically array that is 1's in the frequency bins (1 Mhz 2 MHz, 3 MHz)
         # also create an IC mask between 1st and 2nd harmonic
         #ws = 5  # size of frequency bin (hz) (it will be +/- ws)
-        wsPix = 20 # int(round(ws/self.freqRes))  # number of points that are equivalent to ws (was 5 for timebase 4)
-        numWin = 3     # number of harmonics to incluse (starts at fundamental)
+        wsPix = 5 # int(round(ws/self.freqRes))  # number of points that are equivalent to ws (was 5 for timebase 4)
+        numWin = 2     # number of harmonics to include
         for i in range(numWin):
             freqCent = int(self.FreqVar.get())*1000000 / self.freqRes  # center of fundamental in samples
             freqCent = int(round(freqCent))
-            self.freqMask[(freqCent*(0) + freqCent)-wsPix:(freqCent*(0) + freqCent)+wsPix, 0] = 1
+            self.freqMask[(freqCent*(i) + freqCent)-wsPix:(freqCent*(i) + freqCent)+wsPix, 0] = 1
 
         # also add in 1.5, 0.5, and 2.5 f0
         onepfive = int(round(freqCent*1.5))
@@ -307,6 +309,7 @@ class PcdApp(tk.Tk):
             self.updateIcSc()           # update the ICSC plot to include new data
             self.curr = self.curr+1     # update the pulse you're on
             self.ampVsTime.append(self.AmpVar.get())
+            self.ampIndVsTime.append(self.ampIndex)
             self.Pico.clearData() # remove data from picoscope
         self.therapyRunning = 0
 
@@ -323,34 +326,46 @@ class PcdApp(tk.Tk):
         minAmp = int(minAmp)
         minAmp = str(minAmp)
         self.AmpVar.set(minAmp)
-        self.baselines = np.zeros((self.freqpoints, int(self.nAmps.get()))) # freqpoints by number of amps
-        self.baselineSCIC = np.zeros((2, int(self.nAmps.get())))
-        for ii in range(int(self.nAmps.get())):
-            print('collecting baseline for Amp = ' + self.AmpVar.get())
-            for jj in range(self.nblave):
-                self.updateTraj()  # update trajectory
-                self.Pico.runBlock()
-                self.fus.gen.sendTrajectory(1, self.traj, self.execMode)
-                self.fus.gen.executeTrajectory(1, 1, 0)  # args: traj buffer, n pulses, execDelay
-                self.listener.waitExecution()
-                self.Pico.waitForFinish()
-                self.listener.printExecResult()
+        if int(self.loadBL.get()):
+            print('loading pre acquired baselines')
+            # load in baselines.mat which has rawBaselines, and baselines (spectra)
+            mat_cont = loadmat('baselines.mat')
+            self.baselines = mat_cont['baselines']
+            self.rawBaselines = mat_cont['rawBaselines']
+            self.displayBaseline(self.rawBaselines[:,0,:])
+        else:
+            self.baselines = np.zeros((self.freqpoints, int(self.nAmps.get())))  # freqpoints by number of amps
+            self.baselineSCIC = np.zeros((2, int(self.nAmps.get())))
+            self.rawBaselines = np.zeros((self.nblave, self.postTrigSamps, int(self.nAmps.get())))
+            for ii in range(int(self.nAmps.get())):
+                print('collecting baseline for Amp = ' + self.AmpVar.get())
+                for jj in range(self.nblave):
+                    self.updateTraj()  # update trajectory
+                    self.Pico.runBlock()
+                    self.fus.gen.sendTrajectory(1, self.traj, self.execMode)
+                    self.fus.gen.executeTrajectory(1, 1, 0)  # args: traj buffer, n pulses, execDelay
+                    self.listener.waitExecution()
+                    self.Pico.waitForFinish()
+                    self.listener.printExecResult()
+                    sleep(0.1)
+                # compute fft of baseline and average it
+                self.baselines[:, ii] = self.procBaseline(self.Pico.getDataA())
+
+                # also grab raw baseline data
+                self.rawBaselines[:,:,ii] = self.Pico.getDataA()
+
+                # compute IC and SC values for this baseline and store it for future subtraction
+                # baselineSCIC is 2 by nBL with 1 being SC, 2 being IC on first dimension
+                self.getICSC_Baselines(self.baselines[:,ii], ii)
+
+                # display the last baseline to check if clipping
+                self.displayBaseline(self.Pico.getDataA())
+
+                self.Pico.clearData() # clear data from picoscope object
+                # put baseline into a baselines variable
+                # dev is working with self.baselines
+                self.increaseAmp() # increase with each iteration
                 sleep(0.1)
-            # compute fft of baseline and average it
-            self.baselines[:, ii] = self.procBaseline(self.Pico.getDataA())
-
-            # compute IC and SC values for this baseline and store it for future subtraction
-            # baselineSCIC is 2 by nBL with 1 being SC, 2 being IC on first dimension
-            self.getICSC_Baselines(self.baselines[:,ii], ii)
-
-            # display the last baseline to check if clipping
-            self.displayBaseline(self.Pico.getDataA())
-
-            self.Pico.clearData() # clear data from picoscope object
-            # put baseline into a baselines variable
-            # dev is working with self.baselines
-            self.increaseAmp() # increase with each iteration
-            sleep(0.1)
         # mark baselines as collected
         self.baselinesCollected = 1
 
@@ -358,6 +373,7 @@ class PcdApp(tk.Tk):
         self.AmpVar.set(minAmp)
         self.ampIndex = 0  # also reset to lowest index
         #
+
 
     def displayBaseline(self, data):
         # the goal is to find a portion of the signal that is maximum and plot it in a way that would make
@@ -376,6 +392,7 @@ class PcdApp(tk.Tk):
         # compute spectrum of baselines and then average
         spec = np.fft.fft(data,axis=1)
         avespec = np.average(spec, axis=0)
+        avespec[0:5] = 1 # remove dc
         return(np.abs(avespec[0:self.freqpoints]))
 
     def pulseEcho(self):
@@ -466,7 +483,8 @@ class PcdApp(tk.Tk):
                 "freqAxis": self.freqVec, "freqAxisDS": self.freqVecDS, "sampRate": self.sampRate,
                 "prf": self.PrfVar.get(), "duration": self.duration.get(), "pulselength": self.PulseLengthVar.get(),
                 "frequency": self.FreqVar.get(), "steering": self.steeringCoord, "baselines": self.baselines,
-                "rawdata": self.rawData, "ICVec": self.ICvec, "SCVec": self.SCvec, "ICmask": self.ICMask, "SCmask": self.freqMask}
+                "rawdata": self.rawData, "ICVec": self.ICvec, "SCVec": self.SCvec, "ICmask": self.ICMask,
+                "SCmask": self.freqMask, "rawBaselines": self.rawBaselines, "ampIndexes": self.ampIndVsTime}
         savemat(f, mdic)
         self.therframe.deiconify()
 
@@ -493,6 +511,7 @@ class PcdApp(tk.Tk):
         self.curr = int(0)                                              # iter value that tracks which shot we are on
         self.emergencyStop = 0                                          # flag to stop therapy if you push the stop button
         self.ampVsTime = []
+        self.ampIndVsTime = []                                         # hold index for post processing baseline subtraction
 
     def decreaseAmp(self):
         print(self.AmpVar.get())
@@ -537,27 +556,35 @@ class PcdApp(tk.Tk):
         # could have apodization here by (vec * apodization)
         Fvec = np.fft.fft(vec)  # raw spectrum for this timepoint
 
+        # remove dc
+        Fvec[0, 0:5] = 1
+
         # implement baseline subtraction here based on current amplitude
         FvecSub = np.abs(Fvec[0, 0:self.freqpoints]) - self.baselines[:, self.ampIndex]
 
         # insert into spect data
-        self.spectData[:, self.curr] = np.log10(np.abs(FvecSub[0:self.freqpoints])+.001)
+        #self.spectData[:, self.curr] = np.log10(np.abs(FvecSub[0:self.freqpoints])+.001)
+        FvecSub[FvecSub < 0] = 0
+        self.spectData[:, self.curr] = np.abs(FvecSub[0:self.freqpoints])
 
         # downsample for image representation
         #FvecSubResamp = resample(self.spectData[:, self.curr], int(self.freqpoints / self.dsf)) # old resample (may not be correct due to assumptions in resample)
-        FvecSubResamp = np.interp(self.freqVecDS,self.freqVec,self.spectData[0:int(self.freqpoints/self.freqCrop), self.curr])
+        #FvecSubResamp = np.interp(self.freqVecDS,self.freqVec,self.spectData[0:int(self.freqpoints/self.freqCrop), self.curr])
 
         # gauss blur
-        FvecSubResamp = gaussian_filter1d(FvecSubResamp, 5)
+        #FvecSubResamp = gaussian_filter1d(FvecSubResamp, 5)
+        FvecSubResamp = gaussian_filter1d(FvecSub, 10)
 
         # place resampled subtracted vector into image (use freq crop here)
         # self.spectImage[:, self.curr] = FvecSubResamp[0:len(self.freqVecDS)-1]
         self.spectImage[:, self.curr] = FvecSubResamp[0:self.npointscropped]
 
         # get upper and lower bounds for spectImage contrast
-        upperBound = np.max(FvecSubResamp)
+        upperBound2 = np.max(FvecSubResamp)
         lowerBound = np.average(FvecSubResamp)
-        lowerBound = lowerBound + np.std(FvecSubResamp)
+        lowerBound2 = lowerBound + np.std(FvecSubResamp)
+        lowerBound = 0
+        upperBound = np.average(FvecSubResamp) + 5*np.std(FvecSubResamp)
 
         #display
         self.spectFigPlt.cla()
@@ -565,7 +592,7 @@ class PcdApp(tk.Tk):
         self.SpectCanvas.draw_idle()
         self.lpFigPlt.cla()
         self.lpFigPlt.plot(self.spectData[0:len(self.freqVec), self.curr], self.freqVec)
-        self.lpFigPlt.set_xlim([lowerBound, 1.5*upperBound])
+        self.lpFigPlt.set_xlim([lowerBound2, 1.5*upperBound2])
 
         # optionaly display the bins used for SC and IC calculation
         #self.lpFigPlt.plot(self.ICMask[0:len(self.freqVec), 0], self.freqVec)
@@ -619,16 +646,24 @@ class PcdApp(tk.Tk):
                 self.ICvec[self.curr] = icVal
                 self.SCvec[self.curr] = scVal
                 ww = 5 # window size for running ave
+                lb = 0
+                ub = 1
 
                 if self.curr > ww:
-                    self.ICvecSmooth[self.curr] = np.mean(self.ICvec[self.curr-ww:self.curr]) - np.mean(self.ICvec[0:ww-1])
-                    self.SCvecSmooth[self.curr] = np.mean(self.SCvec[self.curr-ww:self.curr]) - np.mean(self.SCvec[0:ww-1])
+                    self.ICvecSmooth[self.curr] = np.mean(self.ICvec[self.curr-ww:self.curr])# - np.mean(self.ICvec[0:ww-1])
+                    self.SCvecSmooth[self.curr] = np.mean(self.SCvec[self.curr-ww:self.curr])# - np.mean(self.SCvec[0:ww-1])
+                    lb = np.min([np.min(self.ICvec[0:self.curr]), np.min(self.SCvec[0:self.curr])])
+                    ub = np.max([np.max(self.ICvec[0:self.curr]), np.max(self.SCvec[0:self.curr])])
+                if self.curr == ww+1:
+                    self.ICvecSmooth[0:self.curr] = self.ICvec[self.curr]
+                    self.SCvecSmooth[0:self.curr] = self.SCvec[self.curr]
 
                 # display
                 self.icFigPlt.cla()
                 self.icFigPlt.plot(self.SCvecSmooth, label="SC dose")
                 self.icFigPlt.plot(self.ICvecSmooth, label="IC dose")
                 self.icFigPlt.legend(loc="upper right")
+                self.icFigPlt.set_ylim([lb, ub])
                 self.SCcanvas.draw_idle()
         #
 
@@ -694,6 +729,12 @@ class PcdApp(tk.Tk):
         steer_labelZ = tk.Label(self.fusframe, text='Steering Z [mm]', font=('calibre', 10, 'bold'), bg='#323232',
                                 fg='#FFFFFF')
 
+        # load preacquired baselines
+        preBL_label = tk.Label(self.fusframe, text='load old Baselines', font=('calibre', 10, 'bold'), bg='#323232',
+                               fg='#FFFFFF')
+        preBL_entry = tk.Entry(self.fusframe, textvariable=self.loadBL, font=('calibre', 10, 'normal'), bg='#323232',
+                               fg='#90b8f8')
+
         # placing the label and entry in the grid of the fus frame
         fus_label.grid(row=0, column=0, columnspan=2)
         freq_label.grid(row=1, column=0)
@@ -726,9 +767,13 @@ class PcdApp(tk.Tk):
         steer_labelZ.grid(row=11, column=0)
         sz_entry.grid(row=11, column=1)
 
+        # pre acquired baselines?
+        preBL_label.grid(row=12, column=0)
+        preBL_entry.grid(row=12, column=1)
+
         # add a button to refresh values when user inputs changes
         butt = tk.Button(self.fusframe, text="Apply changes", command=self.get_amps, height=1, width=24, pady=3, padx=3, bg='#aaaaaa', fg='#000000', font=('calibre', 10, 'normal'))
-        butt.grid(row=12, column=0)
+        butt.grid(row=13, column=0)
 
 
     def fillGen(self):
