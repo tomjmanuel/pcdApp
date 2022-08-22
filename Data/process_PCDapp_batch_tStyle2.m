@@ -7,7 +7,7 @@ fns = dir('*.mat');
 nf = length(fns);
 
 %%
-for i=1:13
+for i=[2 3]
 figure
 %i=5;
 fn = fns(i).name; % higher pressure at first then dropped down
@@ -173,7 +173,7 @@ if strcmp(fn, '021422_therapy2.mat')
 end
 
 pres = ampsUsedInt*MPaperAmp + MPaOffset;
-Trans = .25; % estimated transmission
+Trans = 1; % estimated transmission
 
 % % phantom transmission is 100%
 % if strcmp(fn(1:2),'no')

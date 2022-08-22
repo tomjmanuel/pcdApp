@@ -266,7 +266,7 @@ class PcdApp(tk.Tk):
         for i in range(numWin):
             freqCent = int(self.FreqVar.get())*1000000 / self.freqRes  # center of fundamental in samples
             freqCent = int(round(freqCent))
-            self.freqMask[(freqCent*(i) + freqCent)-wsPix:(freqCent*(i) + freqCent)+wsPix, 0] = 1
+            self.freqMask[(freqCent*(i+1) + freqCent)-wsPix:(freqCent*(i+1) + freqCent)+wsPix, 0] = 1
 
         # also add in 1.5, 0.5, and 2.5 f0
         onepfive = int(round(freqCent*1.5))
@@ -276,7 +276,7 @@ class PcdApp(tk.Tk):
         self.freqMask[zeropfive - wsPix: zeropfive + wsPix, 0] = 1
         self.freqMask[twopfive - wsPix: twopfive + wsPix, 0] = 1
 
-        # compute ICMask (1 to 2 MHz
+        # compute ICMask (1 to 2 MHz, excluding 1.5 Mhz)
         freqCent = int(self.FreqVar.get()) * 1000000 / self.freqRes  # center of fundamental in samples
         begin = int(freqCent + wsPix*2)
         fin = int(freqCent*2 - wsPix*2)
@@ -562,9 +562,16 @@ class PcdApp(tk.Tk):
         # implement baseline subtraction here based on current amplitude
         FvecSub = np.abs(Fvec[0, 0:self.freqpoints]) - self.baselines[:, self.ampIndex]
 
-        # insert into spect data
-        #self.spectData[:, self.curr] = np.log10(np.abs(FvecSub[0:self.freqpoints])+.001)
+        # zero out any negatives
         FvecSub[FvecSub < 0] = 0
+
+        # block out 1 MHz in visuzliation so contrast windows can hone in better on signal of interest
+        freqCent = int(self.FreqVar.get()) * 1000000 / self.freqRes  # center of fundamental in samples
+        freqCent = int(round(freqCent))
+
+        FvecSub[freqCent-10:freqCent+10] = np.average(FvecSub[2*freqCent:-1])
+
+        # insert into spect data
         self.spectData[:, self.curr] = np.abs(FvecSub[0:self.freqpoints])
 
         # downsample for image representation
@@ -572,7 +579,6 @@ class PcdApp(tk.Tk):
         #FvecSubResamp = np.interp(self.freqVecDS,self.freqVec,self.spectData[0:int(self.freqpoints/self.freqCrop), self.curr])
 
         # gauss blur
-        #FvecSubResamp = gaussian_filter1d(FvecSubResamp, 5)
         FvecSubResamp = gaussian_filter1d(FvecSub, 10)
 
         # place resampled subtracted vector into image (use freq crop here)
@@ -583,16 +589,21 @@ class PcdApp(tk.Tk):
         upperBound2 = np.max(FvecSubResamp)
         lowerBound = np.average(FvecSubResamp)
         lowerBound2 = lowerBound + np.std(FvecSubResamp)
-        lowerBound = 0
-        upperBound = np.average(FvecSubResamp) + 5*np.std(FvecSubResamp)
+        lowerBound = np.average(FvecSubResamp) - 0*np.std(FvecSubResamp)
+        upperBound = np.average(FvecSubResamp) + 3*np.std(FvecSubResamp)
 
         #display
         self.spectFigPlt.cla()
-        self.spectFigPlt.imshow(self.spectImage, vmax=upperBound, vmin=lowerBound, aspect=self.aspect, interpolation="none", extent=[0, self.nPulses, self.freqVecDS[-1], 0])
+        self.spectFigPlt.imshow(self.spectImage, vmax=upperBound, vmin=lowerBound, aspect=self.aspect, cmap='inferno', interpolation="none", extent=[0, self.nPulses, self.freqVecDS[-1], 0])
+        self.spectFigPlt.axis('tight')
+        self.spectFigPlt.set_ylabel('Frequency (MHz)')
+        self.spectFigPlt.set_xlabel('Pulse number')
         self.SpectCanvas.draw_idle()
         self.lpFigPlt.cla()
         self.lpFigPlt.plot(self.spectData[0:len(self.freqVec), self.curr], self.freqVec)
         self.lpFigPlt.set_xlim([lowerBound2, 1.5*upperBound2])
+        self.lpFigPlt.set_ylabel('Frequency (MHz)')
+        self.lpFigPlt.set_xlabel('Amplitude')
 
         # optionaly display the bins used for SC and IC calculation
         #self.lpFigPlt.plot(self.ICMask[0:len(self.freqVec), 0], self.freqVec)
@@ -664,6 +675,8 @@ class PcdApp(tk.Tk):
                 self.icFigPlt.plot(self.ICvecSmooth, label="IC dose")
                 self.icFigPlt.legend(loc="upper right")
                 self.icFigPlt.set_ylim([lb, ub])
+                self.icFigPlt.set_xlabel('Pulse count')
+                self.icFigPlt.set_ylabel('Amplitude')
                 self.SCcanvas.draw_idle()
         #
 
