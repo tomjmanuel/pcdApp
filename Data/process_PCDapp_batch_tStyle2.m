@@ -7,7 +7,7 @@ fns = dir('*.mat');
 nf = length(fns);
 
 %%
-for i=[2 3]
+for i=[3]
 figure
 %i=5;
 fn = fns(i).name; % higher pressure at first then dropped down
